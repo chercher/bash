@@ -45,6 +45,10 @@ getoltblpath() {
 
 getpartpath() {
         hive -S -e "use bi; desc formatted $1 partition($2);" | grep Location | awk {'print $2'}
+        if [ ! $? -eq 0 ]; then
+                echo "Partition not found $1 partition($2)"
+                exit 1
+        fi
 }
 
 getolpartpath() {
