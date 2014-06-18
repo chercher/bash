@@ -1,3 +1,1 @@
-bash
-====
 bash scripts
