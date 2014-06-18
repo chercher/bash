@@ -37,8 +37,8 @@ ifpartexists() {
 
 chktblpartlevel() {
 	str=`hive -S -e "use bi;show create table $1;"`
-	num=`echo $str | sed -r 's/.*PARTITIONED\sBY\s\((.*)\)\sROW.*/\1/' | wc -w`
-	if [ $num -gt 2 ]; then
+	num=`echo $str | grep PARTITIONED | sed -r 's/.*PARTITIONED\sBY\s\((.*)\)\sROW.*/\1/' | wc -w`
+	if [ "$num" -gt 2 ]; then
 		echo "ERROR: hivesync.sh does not support tables of multi-level partitions"
 		exit 1
 	fi
