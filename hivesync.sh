@@ -342,7 +342,7 @@ elif [ $# -eq 2 ]; then
 	datastamp=`date +%Y%m%d%H%m%S`
 	str=`echo 0.00000036262552849271*$s0 | bc`
         time=${str%.*}
-	if [ $time = "" ]; then
+	if [ "$time" = "" ]; then
 		time="several"
 	fi
 	echo "INFO: starting to sync $1($2) data from online to offline ... and it will take about $time seconds or longger."
@@ -357,7 +357,7 @@ elif [ $# -eq 2 ]; then
                 exit 1
         fi
 	echo "ssh -P58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rm $olpartpath/*\""
-	ssh -P58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rm $olpartpath/*"
+	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rm $olpartpath/*"
 	if [ $? -ne 0 ]; then
                 exit 1
         fi
