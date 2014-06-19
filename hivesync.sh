@@ -37,8 +37,10 @@ ifpartexists() {
 
 chktblpartlevel() {
 	str=`hive -S -e "use bi;show create table $1;"`
-	num=`echo $str | grep PARTITIONED | sed -r 's/.*PARTITIONED\sBY\s\((.*)\)\sROW.*/\1/' | wc -w`
-	if [ "$num" -gt 2 ]; then
+	numlevel=`echo $str | grep PARTITIONED | sed -r 's/.*PARTITIONED\sBY\s\((.*)\)\sROW.*/\1/' | wc -w`
+	if [ "$numlevel" = "" ]; then
+		numlevel=0
+	elif [ "$numlevel" -gt 2 ]; then
 		echo "ERROR: hivesync.sh does not support tables of multi-level partitions"
 		exit 1
 	fi
@@ -78,11 +80,12 @@ getolpartpath() {
 }
 
 gethdfspathsize() {
+	#echo "hadoop fs -dus $1"
 	s0=`hadoop fs -dus $1`
 	if [ $? -ne 0 ]; then
 		exit 1
 	fi
-	s0=`echo $str | awk '{print $2}'`
+	s0=`echo $s0 | awk '{print $2}'`
 }
 
 getlocalfreesize() {
@@ -160,7 +163,8 @@ addpartition() {
 
 # check whether there is enough space to sync data
 if [ $# -eq 1 ]; then
-	echo "INIT: check whether table, partition exists and the table's partition levels is one ..."
+	echo "INIT: check whether table, partition exists and the table's partition level is one ..."
+	numlevel=""
 	iftblexists local $1 && chktblpartlevel $1
 	if [ $? -eq 0 ]; then
 		echo "OK"
@@ -270,33 +274,37 @@ else
 fi
 
 # add partition
-if [ $# -eq 1 ]; then
-	echo "Step 3/4: checking $1 partitions ..."
-	hive -S -e "use bi;show partitions $1" > $1.partitions
-	if [ -e $1.partitions ]; then
-		numparts=`cat "$1.partitions" | wc -l`
-		let time=$numparts*5
-		echo "INFO: starting to add $1 all partitions ... and it will cost about $time seconds or longer."
-		quote="'"
-		sed -i "s/=/=$quote/" $1.partitions
-		sed -i "s/$/$quote/" $1.partitions
-		for partition in `cat $1.partitions`
-		do
-			addpartition $1 $partition	
-			#echo
-		done
-		echo "INFO: add partitions done."
-			
-	fi
-elif [ $# -eq 2 ]; then
-	echo "Step 3/4: starting to add $1 partition($2) ..."
-	addpartition $1 $2
-	if [ $? -eq 0 ]; then
-		echo "INFO: $1 add partition $2 done."
-	else
-		echo "ERROR: $1 add partition $2 failed."
-		exit 1
-	fi
+if [ "$numlevel" -eq 0 ]; then
+	echo "Step 3/4: no partition table, no need to add."
+else
+        if [ $# -eq 1 ]; then
+        	echo "Step 3/4: checking $1 partitions ..."
+        	hive -S -e "use bi;show partitions $1" > $1.partitions
+        	if [ -e $1.partitions ]; then
+        		numparts=`cat "$1.partitions" | wc -l`
+        		let time=$numparts*5
+        		echo "INFO: starting to add $1 all partitions ... and it will cost about $time seconds or longer."
+        		quote="'"
+        		sed -i "s/=/=$quote/" $1.partitions
+        		sed -i "s/$/$quote/" $1.partitions
+        		for partition in `cat $1.partitions`
+        		do
+        			addpartition $1 $partition	
+        			#echo
+        		done
+        		echo "INFO: add partitions done."
+        			
+        	fi
+        elif [ $# -eq 2 ]; then
+        	echo "Step 3/4: starting to add $1 partition($2) ..."
+        	addpartition $1 $2
+        	if [ $? -eq 0 ]; then
+        		echo "INFO: $1 add partition $2 done."
+        	else
+        		echo "ERROR: $1 add partition $2 failed."
+        		exit 1
+        	fi
+        fi
 fi
 
 #sync data
@@ -306,13 +314,15 @@ if [ $# -eq 1 ]; then
 	datastamp=`date +%Y%m%d%H%m%S`
 	str=`echo 0.00000036262552849271*$s0 | bc`
 	time=${str%.*}	
-	echo "INFO: starting to sync $1 data from online to offline ... and it will cost about $time seconds or longger."
+	echo "INFO: starting to sync $1 data from online to offline ... and it will take about $time seconds or longger."
 	echo "hadoop fs -get $tblpath /data/$1_$datastamp"
 	hadoop fs -get $tblpath /data/$1_$datastamp
 	if [ $? -ne 0 ]; then
                 exit 1
         fi
+	echo "scp -P58422 -q -r /data/$1_$datastamp hivesync@${OFFLINE_IP}:/data"
 	scp -P58422 -q -r /data/$1_$datastamp hivesync@${OFFLINE_IP}:/data
+	ssh -p58422 hivesync@${OFFLINE_IP} "/usr/bin/kinit -r24l -k -t /data/home/hivesync/.keytab hivesync; /usr/bin/kinit -R"
 	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rmr $oltblpath/*\""
 	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rmr $oltblpath/*"
 	if [ $? -ne 0 ]; then
@@ -332,7 +342,10 @@ elif [ $# -eq 2 ]; then
 	datastamp=`date +%Y%m%d%H%m%S`
 	str=`echo 0.00000036262552849271*$s0 | bc`
         time=${str%.*}
-	echo "INFO: starting to sync $1($2) data from online to offline ... and it will cost about $time seconds or longger."
+	if [ $time = "" ]; then
+		time="several"
+	fi
+	echo "INFO: starting to sync $1($2) data from online to offline ... and it will take about $time seconds or longger."
 	echo "hadoop fs -get $partpath /data/$1_$datastamp"
 	hadoop fs -get $partpath /data/$1_$datastamp
 	if [ $? -ne 0 ]; then
