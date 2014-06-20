@@ -130,6 +130,7 @@ getclusterfreesize() {
 getfileformat() {
 	serde=`hive -S -e "use bi; desc formatted $1" | grep "SerDe Library" | awk '{print $3}'`
 	inputformat=`hive -S -e "use bi; desc formatted $1" | grep "InputFormat" | awk '{print $2}'`
+	outputformat=`hive -S -e "use bi; desc formatted $1" | grep "OutputFormat" | awk '{print $2}'`
 	if [ $serde = "org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe" ]; then
 		echo "RCFILE"
 	elif [ $serde = "org.apache.hadoop.hive.ql.io.orc.OrcSerde" ]; then
@@ -138,18 +139,23 @@ getfileformat() {
 		echo "SEQUENCEFILE"
 	elif [ $serde = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe" ] && [ $inputformat = "org.apache.hadoop.mapred.TextInputFormat" ]; then
 		echo "TEXTFILE"
+	elif [ $serde = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe" ] && [ $inputformat = "com.hadoop.mapred.DeprecatedLzoTextInputFormat" ]; then
+		echo "INPUTFORMAT '"$inputformat"' OUTPUTFORMAT '"$outputformat"'"
 	fi
 	
 }
 
 gettblschema() {
 	fileformat=`getfileformat $2`
+	#echo $fileformat
 	if [ $1 = "local" ]; then
 		str=`hive -S -e "use bi; show create table $2;"`
 		echo ${str%STORED AS*}" STORED AS "$fileformat | sed 's/u0//g'
+		#echo ${str%LOCATION*} | sed 's/u0//g'
 	elif [ $1 = "remote" ]; then
 		str=`ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e 'use bi; show create table $2;'"`
 		echo ${str%STORED AS*}" STORED AS "$fileformat | sed 's/u0//g'
+		#echo ${str%LOCATION*} | sed 's/u0//g'
 	else
 		echo "wront arg."
 		exit 1
