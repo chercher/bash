@@ -256,7 +256,9 @@ if [ $? -eq 0 ]; then
 		if [ $? -eq 0 ]; then
 			echo "INFO: drop table $1 done."
 			echo "INFO: starting to create table $1 as online..."
-			ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;$t1\" > /dev/null 2>&1"
+			getticket="/usr/bin/kinit -r24l -k -t /data/home/hivesync/.keytab hivesync; /usr/bin/kinit -R;"
+			ssh -p58422 hivesync@${OFFLINE_IP} "${getticket};${HIVE_CMD} -S -e \"use bi;$t1\" > /dev/null 2>&1"
+			ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;create table foo(name, string)\""
 			if [ $? -eq 0 ]; then
 				echo "INFO: create table $1 as online done."
 			else
@@ -328,7 +330,7 @@ if [ $# -eq 1 ]; then
         fi
 	echo "scp -P58422 -q -r /data/$1_$datastamp hivesync@${OFFLINE_IP}:/data"
 	scp -P58422 -q -r /data/$1_$datastamp hivesync@${OFFLINE_IP}:/data
-	ssh -p58422 hivesync@${OFFLINE_IP} "/usr/bin/kinit -r24l -k -t /data/home/hivesync/.keytab hivesync; /usr/bin/kinit -R"
+	#ssh -p58422 hivesync@${OFFLINE_IP} "/usr/bin/kinit -r24l -k -t /data/home/hivesync/.keytab hivesync; /usr/bin/kinit -R"
 	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rmr $oltblpath/*\""
 	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rmr $oltblpath/*"
 	if [ $? -ne 0 ]; then
