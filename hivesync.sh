@@ -6,7 +6,7 @@ HADOOP_CMD="/usr/local/hadoop/hadoop-release/bin/hadoop"
 GET_HIVESYNC_TICKET="/usr/bin/kinit -r24l -k -t /data/home/hivesync/.keytab hivesync; /usr/bin/kinit -R"
 GET_HADOOP_TICKET="/usr/bin/kinit -r24l -k -t /home/hadoop/.keytab hadoop; /usr/bin/kinit -R"
 
-iftblexists() {
+if_tbl_exists() {
 	if [ $1 = "local" ]; then
 		hive -S -e "use bi; desc $2" > /dev/null 2>&1
 		if [ $? -eq 0 ]; then
@@ -28,7 +28,7 @@ iftblexists() {
 
 }
 
-ifpartexists() {
+if_part_exists() {
 	#echo "hive -S -e \"use bi; desc formatted $1 partition($2);\""
 	hive -S -e "use bi; desc formatted $1 partition($2);" > /dev/null
 	if [ $? -ne 0 ]; then
@@ -37,7 +37,7 @@ ifpartexists() {
 
 }
 
-chktblpartlevel() {
+chk_tbl_partlevel() {
 	str=`hive -S -e "use bi;show create table $1;"`
 	numlevel=`echo $str | grep PARTITIONED | sed -r 's/.*PARTITIONED\sBY\s\((.*)\)\sROW.*/\1/' | wc -w`
 	if [ "$numlevel" = "" ]; then
@@ -48,7 +48,7 @@ chktblpartlevel() {
 	fi
 }
 
-gettblpath() {
+get_onlinetbl_path() {
 	str=`hive -S -e "use bi; desc formatted $1;"`
 	if [ $? -ne 0 ]; then
 		exit 1
@@ -57,7 +57,7 @@ gettblpath() {
 
 }
 
-getoltblpath() {
+get_offlinetbl_path() {
 	str=`ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi; desc formatted $1;\""`
 	if [ $? -ne 0 ]; then
                 exit 1
@@ -65,7 +65,7 @@ getoltblpath() {
 	echo $str | sed -r 's/.*Location:\s(.*)\sTable\sType.*/\1/'
 }
 
-getpartpath() {
+get_onlinepart_path() {
 	str=`hive -S -e "use bi; desc formatted $1 partition($2);"`
 	if [ $? -ne 0 ]; then
                 exit 1
@@ -73,7 +73,7 @@ getpartpath() {
 	echo $str | sed -r 's/.*Location:\s(.*)\sPartition.*/\1/'
 }
 
-getolpartpath() {
+get_offlinepart_path() {
 	str=`ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi; desc formatted $1 partition($2);\""`
 	if [ $? -ne 0 ]; then
                 exit 1
@@ -81,7 +81,7 @@ getolpartpath() {
 	echo $str | sed -r 's/.*Location:\s(.*)\sPartition.*/\1/'
 }
 
-gethdfspathsize() {
+get_hdfspath_size() {
 	#echo "hadoop fs -dus $1"
 	s0=`hadoop fs -dus $1`
 	if [ $? -ne 0 ]; then
@@ -90,7 +90,7 @@ gethdfspathsize() {
 	s0=`echo $s0 | awk '{print $2}'`
 }
 
-getlocalfreesize() {
+get_disk_freesize() {
 	if [ $1 = "local" ]; then
 		s1=`df -h | grep data | awk '{print $4}'`
 		unit=${s1:0-1}
@@ -123,7 +123,7 @@ getlocalfreesize() {
 	fi
 }
 
-getclusterfreesize() {
+get_cluster_freesize() {
 	size=`ssh -p58422 hadoop@${OFFLINE_IP} "${HADOOP_CMD} dfsadmin -report | head -n 3 | tail -n 1 | sed -r 's/.*\((.*)\sGB\)/\1/'"`
 	if [ $? -ne 0 ]; then
 		exit 1
@@ -132,7 +132,7 @@ getclusterfreesize() {
 	s3=`echo ${bytesize%.*}`
 }
 
-getfileformat() {
+get_store_format() {
 	serde=`hive -S -e "use bi; desc formatted $1" | grep "SerDe Library" | awk '{print $3}'`
 	inputformat=`hive -S -e "use bi; desc formatted $1" | grep "InputFormat" | awk '{print $2}'`
 	outputformat=`hive -S -e "use bi; desc formatted $1" | grep "OutputFormat" | awk '{print $2}'`
@@ -150,16 +150,16 @@ getfileformat() {
 	
 }
 
-gettblschema() {
-	fileformat=`getfileformat $2`
-	#echo $fileformat
+get_tbl_schema() {
+	storeformat=`get_store_format $2`
+	#echo $storeformat
 	if [ $1 = "local" ]; then
 		str=`hive -S -e "use bi; show create table $2;"`
-		echo ${str%STORED AS*}" STORED AS "$fileformat | sed 's/u0//g'
+		echo ${str%STORED AS*}" STORED AS "$storeformat | sed 's/u0//g'
 		#echo ${str%LOCATION*} | sed 's/u0//g'
 	elif [ $1 = "remote" ]; then
 		str=`ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e 'use bi; show create table $2;'"`
-		echo ${str%STORED AS*}" STORED AS "$fileformat | sed 's/u0//g'
+		echo ${str%STORED AS*}" STORED AS "$storeformat | sed 's/u0//g'
 		#echo ${str%LOCATION*} | sed 's/u0//g'
 	else
 		echo "wront arg."
@@ -167,7 +167,7 @@ gettblschema() {
 	fi
 }
 
-addpartition() {
+add_partition() {
 	#echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${getticket}; ${HIVE_CMD} -S -e \"use bi; alter table $1 drop if exists partition($2);alter table $1 add partition($2);\"\""
 	ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi; alter table $1 drop if exists partition($2);alter table $1 add partition($2);\""
 	
@@ -181,26 +181,26 @@ echo "INIT: check whether table, partition exists and the table's partition leve
 # check whether there is enough space to sync data
 if [ $# -eq 1 ]; then
 	numlevel=""
-	iftblexists local $1 && chktblpartlevel $1
+	if_tbl_exists local $1 && chk_tbl_partlevel $1
 	if [ $? -eq 0 ]; then
 		echo "OK"
 		echo "Step 1/4: checking whether there is enough space to sync data ..."
-		tblpath=`gettblpath $1`
+		tblpath=`get_onlinetbl_path $1`
 		s0=""
-		gethdfspathsize $tblpath
+		get_hdfspath_size $tblpath
 		#s0="330919890"
 	elif [ $? -eq 1 ]; then
 		echo "$1 does not exist online."
 		exit 1
 	fi
 elif [ $# -eq 2 ]; then
-	iftblexists local $1 && ifpartexists $1 $2 && chktblpartlevel $1
+	if_tbl_exists local $1 && if_part_exists $1 $2 && chk_tbl_partlevel $1
 	if [ $? -eq 0 ]; then
 		echo "OK"
 		echo "Step 1/4: checking whether there is enough space to sync data ..."
-		partpath=`getpartpath $1 $2`
+		partpath=`get_onlinepart_path $1 $2`
 		s0=""
-		gethdfspathsize $partpath
+		get_hdfspath_size $partpath
 		#s0="330919890"
 	elif [ $? -eq 1 ]; then
 		echo "$1 does not exist online."
@@ -217,15 +217,15 @@ elif [ $# -eq 2 ]; then
 	echo "INFO: $1($2) space in bytes: "$s0""
 fi
 s1=0
-getlocalfreesize local
+get_disk_freesize local
 echo "INFO: 7.159 /data free space in bytes: "$s1""
 
 s2=0
-getlocalfreesize remote
+get_disk_freesize remote
 echo "INFO: cosmos01.beta /data free space in bytes: "$s2""
 
 s3=0
-getclusterfreesize
+get_cluster_freesize
 echo "INFO: offline hadoop cluster free space in bytes: "$s3""
 
 if [ $s0 -gt $s1 ]; then
@@ -250,11 +250,11 @@ fi
 
 # sync table schema
 echo "Step 2/4: checking online and offline table schema ..."
-t1=`gettblschema local $1`
+t1=`get_tbl_schema local $1`
 echo "INFO: online $1 schema: "$t1""
-iftblexists remote $1
+if_tbl_exists remote $1
 if [ $? -eq 0 ]; then
-	t2=`gettblschema remote $1`
+	t2=`get_tbl_schema remote $1`
 	echo "INFO: offline $1 schema: "$t2""
 	if [ "$t1" = "$t2" ]; then
 		echo "INFO: $1 has the same schema between online and offline, no need to recreate the schema."
@@ -305,7 +305,7 @@ else
         		sed -i "s/$/$quote/" $1.partitions
         		for partition in `cat $1.partitions`
         		do
-        			addpartition $1 $partition	
+        			add_partition $1 $partition	
         			#echo
         		done
         		echo "INFO: add partitions done."
@@ -313,7 +313,7 @@ else
         	fi
         elif [ $# -eq 2 ]; then
         	echo "Step 3/4: starting to add $1 partition($2) ..."
-        	addpartition $1 $2
+        	add_partition $1 $2
         	if [ $? -eq 0 ]; then
         		echo "INFO: $1 add partition $2 done."
         	else
@@ -326,7 +326,7 @@ fi
 #sync data
 echo "Step 4/4: sync data from online to offline"
 if [ $# -eq 1 ]; then
-	oltblpath=`getoltblpath $1`
+	oltblpath=`get_offlinetbl_path $1`
 	datastamp=`date +%Y%m%d%H%m%S`
 	str=`echo 0.00000036262552849271*$s0 | bc`
 	time=${str%.*}	
@@ -354,7 +354,7 @@ if [ $# -eq 1 ]; then
 	ssh -p58422 hivesync@${OFFLINE_IP} "rm -rf /data/$1_$datastamp"
 	echo "INFO: clear tmp files done."
 elif [ $# -eq 2 ]; then
-	olpartpath=`getolpartpath $1 $2`
+	olpartpath=`get_offlinepart_path $1 $2`
 	datastamp=`date +%Y%m%d%H%m%S`
 	str=`echo 0.00000036262552849271*$s0 | bc`
         time=${str%.*}
@@ -387,5 +387,3 @@ elif [ $# -eq 2 ]; then
         ssh -p58422 hivesync@${OFFLINE_IP} "rm -rf /data/$1_$datastamp"
 	echo "INFO: clear tmp files done."
 fi
-
-
