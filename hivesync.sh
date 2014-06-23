@@ -3,6 +3,8 @@
 OFFLINE_IP="192.168.213.245"
 HIVE_CMD="/usr/local/hadoop/hive-release/bin/hive"
 HADOOP_CMD="/usr/local/hadoop/hadoop-release/bin/hadoop"
+GET_HIVESYNC_TICKET="/usr/bin/kinit -r24l -k -t /data/home/hivesync/.keytab hivesync; /usr/bin/kinit -R"
+GET_HADOOP_TICKET="/usr/bin/kinit -r24l -k -t /home/hadoop/.keytab hadoop; /usr/bin/kinit -R"
 
 iftblexists() {
 	if [ $1 = "local" ]; then
@@ -123,6 +125,9 @@ getlocalfreesize() {
 
 getclusterfreesize() {
 	size=`ssh -p58422 hadoop@${OFFLINE_IP} "${HADOOP_CMD} dfsadmin -report | head -n 3 | tail -n 1 | sed -r 's/.*\((.*)\sGB\)/\1/'"`
+	if [ $? -ne 0 ]; then
+		exit 1
+	fi
 	bytesize=`echo $size*1024*1024*1024|bc`
 	s3=`echo ${bytesize%.*}`
 }
@@ -163,13 +168,18 @@ gettblschema() {
 }
 
 addpartition() {
+	#echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${getticket}; ${HIVE_CMD} -S -e \"use bi; alter table $1 drop if exists partition($2);alter table $1 add partition($2);\"\""
 	ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi; alter table $1 drop if exists partition($2);alter table $1 add partition($2);\""
 	
 }
 
+#get ticket
+ssh -p58422 hivesync@${OFFLINE_IP} "${GET_HIVESYNC_TICKET}"
+ssh -p58422 hadoop@${OFFLINE_IP} "${GET_HADOOP_TICKET}"
+
+echo "INIT: check whether table, partition exists and the table's partition level is one ..."
 # check whether there is enough space to sync data
 if [ $# -eq 1 ]; then
-	echo "INIT: check whether table, partition exists and the table's partition level is one ..."
 	numlevel=""
 	iftblexists local $1 && chktblpartlevel $1
 	if [ $? -eq 0 ]; then
@@ -184,7 +194,6 @@ if [ $# -eq 1 ]; then
 		exit 1
 	fi
 elif [ $# -eq 2 ]; then
-	echo "INIT: checking whether table, partition exists and the table's partition level is one..."
 	iftblexists local $1 && ifpartexists $1 $2 && chktblpartlevel $1
 	if [ $? -eq 0 ]; then
 		echo "OK"
@@ -207,15 +216,15 @@ if [ $# -eq 1 ]; then
 elif [ $# -eq 2 ]; then
 	echo "INFO: $1($2) space in bytes: "$s0""
 fi
-s1=""
+s1=0
 getlocalfreesize local
 echo "INFO: 7.159 /data free space in bytes: "$s1""
 
-s2=""
+s2=0
 getlocalfreesize remote
 echo "INFO: cosmos01.beta /data free space in bytes: "$s2""
 
-s3=""
+s3=0
 getclusterfreesize
 echo "INFO: offline hadoop cluster free space in bytes: "$s3""
 
@@ -256,8 +265,7 @@ if [ $? -eq 0 ]; then
 		if [ $? -eq 0 ]; then
 			echo "INFO: drop table $1 done."
 			echo "INFO: starting to create table $1 as online..."
-			getticket="/usr/bin/kinit -r24l -k -t /data/home/hivesync/.keytab hivesync; /usr/bin/kinit -R;"
-			ssh -p58422 hivesync@${OFFLINE_IP} "${getticket};${HIVE_CMD} -S -e \"use bi;$t1\" > /dev/null 2>&1"
+			ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;$t1\" > /dev/null 2>&1"
 			ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;create table foo(name, string)\""
 			if [ $? -eq 0 ]; then
 				echo "INFO: create table $1 as online done."
