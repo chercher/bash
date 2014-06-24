@@ -241,7 +241,7 @@ if [ $# -eq 1 ]; then
 		exit 1
 	fi
 elif [ $# -eq 2 ]; then
-	if_tbl_exists local $1 && if_part_exists $1 $2 && chk_tbl_partlevel $1
+	if_tbl_exists local $1 && chk_tbl_partlevel $1 && if_part_exists $1 $2
 	if [ $? -eq 0 ]; then
 		echo "OK"
 		echo "Step 1/4: checking whether there is enough space to sync data ..."
@@ -254,7 +254,7 @@ elif [ $# -eq 2 ]; then
 		exit 1
 	fi
 elif [ $# -eq 3 ]; then
-	if_tbl_exists local $1 && if_part_exists $1 $2 && if_part_exists $1 $3 && chk_tbl_partlevel $1
+	if_tbl_exists local $1 && chk_tbl_partlevel $1 && if_part_exists $1 $2 && if_part_exists $1 $3
 	if [ $? -eq 0 ]; then
 		echo "OK"
 		echo "Step 1/4: checking whether there is enough space to sync data ..."
