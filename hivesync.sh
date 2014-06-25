@@ -28,10 +28,50 @@ if_tbl_exists() {
 
 }
 
+get_all_partitions() {
+        hive -S -e "use bi;show partitions $1" > $1.partitions
+        if [ $? -ne 0 ]; then
+                exit 1
+        fi
+}
+
+get_range_partitions() {
+      	get_all_partitions $1
+	sed -i "s/=/=$quote/" $1.partitions
+	sed -i "s/$/$quote/" $1.partitions
+       	start_linenum=`grep -n $2 $1.partitions | awk -F":" '{print $1}'`
+        if [ $start_linenum -gt 1 ]; then
+                let delstart_linenum=$start_linenum-1
+                sed -i "1,${delstart_linenum}d" $1.partitions
+        fi
+        end_linenum=`grep -n $3 $1.partitions | awk -F":" '{print $1}'`
+        sum_lines=`cat $1.partitions | wc -l`
+        if [ $end_linenum -lt $sum_lines ]; then
+                let delend_linenum=$end_linenum+1
+                sed -i "${delend_linenum},${sum_lines}d" $1.partitions
+        fi
+}
+
+get_twolevel_partitions() {
+	get_all_partitions $1
+	quote="'"
+	str=`echo $2 | sed "s/$quote//g"`
+	grep "$str" $1.partitions > $1.partitions.tmp
+	mv $1.partitions.tmp $1.partitions
+	sed -i "s/=/=$quote/g" $1.partitions
+	sed -i "s/\//$quote, /" $1.partitions
+	sed -i "s/$/$quote/" $1.partitions
+}
+
 if_part_exists() {
 	#echo "hive -S -e \"use bi; desc formatted $1 partition($2);\""
-	hive -S -e "use bi; desc formatted $1 partition($2);" > /dev/null
+	#hive -S -e "use bi; desc formatted $1 partition($2);" > /dev/null
+	get_all_partitions $1
+	quote="'"
+	str=`echo $2 | sed "s/$quote//g"`
+	grep "$str" $1.partitions > /dev/null
 	if [ $? -ne 0 ]; then
+		echo "ERROR: partition $1($2) does not exist."
                 exit 1
         fi
 
@@ -42,8 +82,11 @@ chk_tbl_partlevel() {
 	numlevel=`echo $str | grep PARTITIONED | sed -r 's/.*PARTITIONED\sBY\s\((.*)\)\sROW.*/\1/' | wc -w`
 	if [ "$numlevel" = "" ]; then
 		numlevel=0
-	elif [ "$numlevel" -gt 2 ]; then
-		echo "ERROR: hivesync.sh does not support tables of multi-level partitions"
+	else
+		let numlevel=$numlevel/2
+	fi
+	if [ "$numlevel" -gt 2 ]; then
+		echo "ERROR: hivesync.sh does not support tables of three or more level partitions"
 		exit 1
 	fi
 }
@@ -57,6 +100,13 @@ get_onlinetbl_path() {
 
 }
 
+get_onlinepart_path() {
+        tblpath=`get_onlinetbl_path $1`
+        quote="'"
+        partpostfix=`echo $2 | sed "s/$quote//g"`
+        echo $tblpath"/"$partpostfix
+}
+
 get_offlinetbl_path() {
 	str=`ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi; desc formatted $1;\""`
 	if [ $? -ne 0 ]; then
@@ -65,20 +115,11 @@ get_offlinetbl_path() {
 	echo $str | sed -r 's/.*Location:\s(.*)\sTable\sType.*/\1/'
 }
 
-get_onlinepart_path() {
-	str=`hive -S -e "use bi; desc formatted $1 partition($2);"`
-	if [ $? -ne 0 ]; then
-                exit 1
-        fi
-	echo $str | sed -r 's/.*Location:\s(.*)\sPartition.*/\1/'
-}
-
 get_offlinepart_path() {
-	str=`ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi; desc formatted $1 partition($2);\""`
-	if [ $? -ne 0 ]; then
-                exit 1
-        fi
-	echo $str | sed -r 's/.*Location:\s(.*)\sPartition.*/\1/'
+	oftblpath=`get_offlinetbl_path $1`
+	quote="'"
+	partpostfix=`echo $2 | sed "s/$quote//g"`
+	echo $oftblpath"/"$partpostfix	
 }
 
 get_hdfspath_size() {
@@ -168,63 +209,60 @@ get_tbl_schema() {
 }
 
 add_single_partition() {
-	#echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${getticket}; ${HIVE_CMD} -S -e \"use bi; alter table $1 drop if exists partition($2);alter table $1 add partition($2);\"\""
+	#echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HIVE_CMD} -S -e \"use bi; alter table $1 drop if exists partition($2);alter table $1 add partition($2);\"\""
 	ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi; alter table $1 drop if exists partition($2);alter table $1 add partition($2);\""
-	
-}
-
-get_all_partitions() {
-	hive -S -e "use bi;show partitions $1" > $1.partitions
-	if [ $? -ne 0 ]; then
-                exit 1
-        fi
-        quote="'"
-        sed -i "s/=/=$quote/" $1.partitions
-        sed -i "s/$/$quote/" $1.partitions
-}
-
-get_range_partitions() {
-	get_all_partitions $1
-	start_linenum=`grep -n $2 $1.partitions | awk -F":" '{print $1}'`
-	if [ $start_linenum -gt 1 ]; then
-		let delstart_linenum=$start_linenum-1
-		sed -i "1,${delstart_linenum}d" $1.partitions
-	fi
-	end_linenum=`grep -n $3 $1.partitions | awk -F":" '{print $1}'`
-	sum_lines=`cat $1.partitions | wc -l`
-	if [ $end_linenum -lt $sum_lines ]; then
-		let delend_linenum=$end_linenum+1
-		sed -i "${delend_linenum},${sum_lines}d" $1.partitions
-	fi
 }
 
 add_multi_partitions() {
 	if [ -e $1.partitions ]; then
 		numparts=`cat "$1.partitions" | wc -l`
                 let time=$numparts*5
-                echo "INFO: starting to add $1 all partitions ... and it will cost about $time seconds or longer."
+                echo "INFO: it will take about $time seconds or longer."
+		SAVEIFS=$IFS
+		IFS=$'\n'
                 for partition in `cat $1.partitions`
                 do
-                       add_single_partition $1 $partition
-                       #echo
+                       add_single_partition "$1" "$partition"
                 done
+		IFS=$SAVEIFS
                 echo "INFO: add partitions done."
 	fi
 }
 
 cal_sync_time() {
-        str=`echo 0.00000036262552849271*$s0 | bc`
-        time=${str%.*}
-        if [ "$time" = "" ]; then
-                time="several"
+	# hadoop fs transfer time
+        str1=`echo 0.00000036262552849271*$s0 | bc`
+        time1=${str1%.*}
+	if [ "$time1" = "" ]; then
+                time=0
         fi
+	# scp transfer time
+	str2=`echo $s0/2621440 | bc`
+	time2=${str2%.*}
+        if [ "$time2" = "" ]; then
+                time=0
+        fi
+	time=`echo $time1+$time2 | bc`
 }
+
+clear_tmp_files() {
+	if [ -e "$1.partitions" ]; then
+		rm -f $1.partitions
+	fi
+	if [ -e "/data/$1_$2" ]; then
+		find /data/$1_$2 -type f -size +500M -exec sh -c "> {}" \;
+		rm -rf /data/$1_$2
+	fi
+        ssh -p58422 hivesync@${OFFLINE_IP} "[ -e /data/$1_$2 ] && find /data/$1_$2 -type f -size +500M -exec sh -c \"> {}\" \; && rm -rf /data/$1_$2"
+        echo "INFO: clear tmp files done."
+}
+
 
 #get hivesync and hadoop ticket at first
 ssh -p58422 hivesync@${OFFLINE_IP} "${GET_HIVESYNC_TICKET}"
 ssh -p58422 hadoop@${OFFLINE_IP} "${GET_HADOOP_TICKET}"
 
-echo "INIT: check whether table, partition exists and the table's partition level is one ..."
+echo "INIT: check whether table, partition exists and the table's partition level is no more than two..."
 # check whether there is enough space to sync data
 if [ $# -eq 1 ]; then
 	numlevel=""
@@ -232,6 +270,7 @@ if [ $# -eq 1 ]; then
 	if [ $? -eq 0 ]; then
 		echo "OK"
 		echo "Step 1/4: checking whether there is enough space to sync data ..."
+
 		tblpath=`get_onlinetbl_path $1`
 		s0=0
 		s0=`get_hdfspath_size $tblpath`
@@ -360,10 +399,13 @@ fi
 # add partition
 if [ "$numlevel" -eq 0 ]; then
 	echo "Step 3/4: no partition table, no need to add."
-else
+elif [ "$numlevel" -eq 1 ]; then
         if [ $# -eq 1 ]; then
-        	echo "Step 3/4: checking $1 all partitions ..."
+        	echo "Step 3/4: starting to add $1 all partitions ..."
 		get_all_partitions $1
+		quote="'"
+		sed -i "s/=/=$quote/" $1.partitions
+        	sed -i "s/$/$quote/" $1.partitions
 		add_multi_partitions $1
         elif [ $# -eq 2 ]; then
         	echo "Step 3/4: starting to add $1 partition($2) ..."
@@ -379,16 +421,28 @@ else
 		get_range_partitions $1 $2 $3
 		add_multi_partitions $1
         fi
+elif [ "$numlevel" -eq 2 ]; then
+	if [ $# -eq 2 ]; then
+		echo "Step 3/4: starting to add $1 partition($2) ..."
+		get_twolevel_partitions $1 $2
+		add_multi_partitions $1
+	else
+		echo "ERROR: two level partition table only support sync the first single level partition"
+		exit 1
+	fi
+
 fi
 
 # sync data
 echo "Step 4/4: sync data from online to offline"
 if [ $# -eq 1 ]; then
-	oltblpath=`get_offlinetbl_path $1`
-	datastamp=`date +%Y%m%d%H%m%S`
 	time=0
 	cal_sync_time
 	echo "INFO: starting to sync $1 data from online to offline ... and it will take about $time seconds or longger."
+
+	oltblpath=`get_offlinetbl_path $1`
+        datastamp=`date +%Y%m%d%H%m%S`
+
 	echo "hadoop fs -get $tblpath /data/$1_$datastamp"
 	hadoop fs -get $tblpath /data/$1_$datastamp
 	if [ $? -ne 0 ]; then
@@ -407,43 +461,46 @@ if [ $# -eq 1 ]; then
                 exit 1
         fi
 	echo "INFO: sync $1 data from online to offline done."
-	rm -rf /data/$1_$datastamp
-	ssh -p58422 hivesync@${OFFLINE_IP} "rm -rf /data/$1_$datastamp"
-	echo "INFO: clear tmp files done."
+	clear_tmp_files $1 $datastamp
 elif [ $# -eq 2 ]; then
 	time=0
 	cal_sync_time
 	echo "INFO: starting to sync $1($2) data from online to offline ... and it will take about $time seconds or longger."
 
+	oltblpath=`get_offlinetbl_path $1`
 	olpartpath=`get_offlinepart_path $1 $2`
 	datastamp=`date +%Y%m%d%H%m%S`
-	echo "hadoop fs -get $partpath /data/$1_$datastamp"
-	hadoop fs -get $partpath /data/$1_$datastamp
+	quote="'"
+	partdir=`echo $2 | sed "s/$quote//g"`
+	echo "hadoop fs -get $partpath /data/$1_$datastamp/$partdir"
+	hadoop fs -get $partpath /data/$1_$datastamp/$partdir
 	if [ $? -ne 0 ]; then
 		exit 1
 	fi
-	echo "scp -P58422 -q -r /data/$1_$datastamp hivesync@${OFFLINE_IP}:/data"
-	scp -P58422 -q -r /data/$1_$datastamp hivesync@${OFFLINE_IP}:/data
+	echo "scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp/$partdir"
+	ssh -p58422 hivesync@${OFFLINE_IP} "mkdir -p /data/$1_$datastamp"
+	scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp/$partdir
 	if [ $? -ne 0 ]; then
                 exit 1
         fi
-	echo "ssh -P58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rm $olpartpath/*\""
-	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rm $olpartpath/*"
+	echo "ssh -P58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rmr $olpartpath\""
+	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rmr $olpartpath"
 	if [ $? -ne 0 ]; then
                 exit 1
         fi
-	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -put /data/$1_$datastamp/* $olpartpath\""
-	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -put /data/$1_$datastamp/* $olpartpath"
+	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -put /data/$1_$datastamp/* $oltblpath\""
+	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -put /data/$1_$datastamp/* $oltblpath"
 	if [ $? -ne 0 ]; then
                 exit 1
         fi
 	echo "INFO: sync $1($2) data from online to offline done."
+	clear_tmp_files $1 $datastamp
 
-	rm -f $1.partitions
-	rm -rf /data/$1_$datastamp
-        ssh -p58422 hivesync@${OFFLINE_IP} "rm -rf /data/$1_$datastamp"
-	echo "INFO: clear tmp files done."
 elif [ $# -eq 3 ]; then
+	time=0
+	cal_sync_time
+	echo "INFO: starting to sync $1($2, $3) data from online to offline ... and it will take about $time seconds or longger."
+	
 	datastamp=`date +%Y%m%d%H%m%S`
 	for partition in `cat $1.partitions`	
 	do
@@ -456,7 +513,7 @@ elif [ $# -eq 3 ]; then
         	if [ $? -ne 0 ]; then
         	        exit 1
         	fi
-        	echo "scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp"
+        	echo "scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp/$partdir"
 		ssh -p58422 hivesync@${OFFLINE_IP} "mkdir -p /data/$1_$datastamp"
         	scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp/$partdir
         	if [ $? -ne 0 ]; then
@@ -474,9 +531,5 @@ elif [ $# -eq 3 ]; then
         	fi
 	done
 	echo "INFO: sync $1($2, $3) data from online to offline done."
-	
-	rm -f $1.partitions
-	rm -rf /data/$1_$datastamp
-	ssh -p58422 hivesync@${OFFLINE_IP} "rm -rf /data/$1_$datastamp"
-	echo "INFO: clear tmp files done."
+	clear_tmp_files $1 $datastamp	
 fi
