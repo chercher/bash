@@ -191,6 +191,11 @@ get_store_format() {
 	
 }
 
+get_null_format() {
+        hive -S -e "use bi; desc formatted $1" | grep "serialization.null.format"
+        echo $?
+}
+
 get_tbl_schema() {
 	storeformat=`get_store_format $2`
 	#echo $storeformat
@@ -372,8 +377,14 @@ if [ $? -eq 0 ]; then
 		if [ $? -eq 0 ]; then
 			echo "INFO: drop table $1 done."
 			echo "INFO: starting to create table $1 as online..."
-			ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;$t1\" > /dev/null 2>&1"
-			ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;create table foo(name, string)\""
+			ifsetnull=`get_null_format $1`
+			if [ "$ifsetnull" -eq 0 ]; then
+				ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;$t1; ALTER TABLE $1 SET SERDEPROPERTIES('serialization.null.format' = '');\" > /dev/null 2>&1"	
+			elif [ "$ifsetnull" -eq 1 ]; then
+				ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;$t1\" > /dev/null 2>&1"
+			else
+				exit 1
+			fi
 			if [ $? -eq 0 ]; then
 				echo "INFO: create table $1 as online done."
 			else
