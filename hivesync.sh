@@ -52,14 +52,14 @@ get_range_partitions() {
         fi
 }
 
-get_twolevel_partitions() {
+get_multilevel_partitions() {
 	get_all_partitions $1
 	quote="'"
 	str=`echo $2 | sed "s/$quote//g"`
 	grep "$str" $1.partitions > $1.partitions.tmp
 	mv $1.partitions.tmp $1.partitions
 	sed -i "s/=/=$quote/g" $1.partitions
-	sed -i "s/\//$quote, /" $1.partitions
+	sed -i "s/\//$quote, /g" $1.partitions
 	sed -i "s/$/$quote/" $1.partitions
 }
 
@@ -77,17 +77,13 @@ if_part_exists() {
 
 }
 
-chk_tbl_partlevel() {
+get_tbl_partlevel() {
 	str=`hive -S -e "use bi;show create table $1;"`
 	numlevel=`echo $str | grep PARTITIONED | sed -r 's/.*PARTITIONED\sBY\s\((.*)\)\sROW.*/\1/' | wc -w`
 	if [ "$numlevel" = "" ]; then
 		numlevel=0
 	else
 		let numlevel=$numlevel/2
-	fi
-	if [ "$numlevel" -gt 2 ]; then
-		echo "ERROR: hivesync.sh does not support tables of three or more level partitions"
-		exit 1
 	fi
 }
 
@@ -267,11 +263,10 @@ clear_tmp_files() {
 ssh -p58422 hivesync@${OFFLINE_IP} "${GET_HIVESYNC_TICKET}"
 ssh -p58422 hadoop@${OFFLINE_IP} "${GET_HADOOP_TICKET}"
 
-echo "INIT: check whether table, partition exists and the table's partition level is no more than two..."
+echo "INIT: check whether table, partition exists ..."
 # check whether there is enough space to sync data
 if [ $# -eq 1 ]; then
-	numlevel=""
-	if_tbl_exists local $1 && chk_tbl_partlevel $1
+	if_tbl_exists local $1
 	if [ $? -eq 0 ]; then
 		echo "OK"
 		echo "Step 1/4: checking whether there is enough space to sync data ..."
@@ -285,7 +280,7 @@ if [ $# -eq 1 ]; then
 		exit 1
 	fi
 elif [ $# -eq 2 ]; then
-	if_tbl_exists local $1 && chk_tbl_partlevel $1 && if_part_exists $1 $2
+	if_tbl_exists local $1 && if_part_exists $1 $2
 	if [ $? -eq 0 ]; then
 		echo "OK"
 		echo "Step 1/4: checking whether there is enough space to sync data ..."
@@ -298,7 +293,7 @@ elif [ $# -eq 2 ]; then
 		exit 1
 	fi
 elif [ $# -eq 3 ]; then
-	if_tbl_exists local $1 && chk_tbl_partlevel $1 && if_part_exists $1 $2 && if_part_exists $1 $3
+	if_tbl_exists local $1 && if_part_exists $1 $2 && if_part_exists $1 $3
 	if [ $? -eq 0 ]; then
 		echo "OK"
 		echo "Step 1/4: checking whether there is enough space to sync data ..."
@@ -408,6 +403,9 @@ else
 fi
 
 # add partition
+
+numlevel=""
+get_tbl_partlevel $1
 if [ "$numlevel" -eq 0 ]; then
 	echo "Step 3/4: no partition table, no need to add."
 elif [ "$numlevel" -eq 1 ]; then
@@ -432,16 +430,18 @@ elif [ "$numlevel" -eq 1 ]; then
 		get_range_partitions $1 $2 $3
 		add_multi_partitions $1
         fi
-elif [ "$numlevel" -eq 2 ]; then
+elif [ "$numlevel" -gt 1 ]; then
 	if [ $# -eq 2 ]; then
 		echo "Step 3/4: starting to add $1 partition($2) ..."
-		get_twolevel_partitions $1 $2
+		get_multilevel_partitions $1 $2
 		add_multi_partitions $1
 	else
-		echo "ERROR: two level partition table only support sync the first single level partition"
+		echo "ERROR: multi level partition table only support sync the first single level partition"
 		exit 1
 	fi
-
+else
+	rm -f $1.partitions
+	exit 1
 fi
 
 # sync data
