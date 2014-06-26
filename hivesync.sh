@@ -458,6 +458,7 @@ if [ $# -eq 1 ]; then
 	hadoop fs -get $tblpath /data/$1_$datastamp
 	if [ $? -ne 0 ]; then
                 exit 1
+		clear_tmp_files $1 $datastamp
         fi
 	echo "scp -P58422 -q -r /data/$1_$datastamp hivesync@${OFFLINE_IP}:/data"
 	scp -P58422 -q -r /data/$1_$datastamp hivesync@${OFFLINE_IP}:/data
@@ -465,11 +466,13 @@ if [ $# -eq 1 ]; then
 	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rmr $oltblpath/*"
 	if [ $? -ne 0 ]; then
                 exit 1
+		clear_tmp_files $1 $datastamp
         fi
 	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -put /data/$1_$datastamp/* $oltblpath\""
 	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -put /data/$1_$datastamp/* $oltblpath"
 	if [ $? -ne 0 ]; then
                 exit 1
+		clear_tmp_files $1 $datastamp
         fi
 	echo "INFO: sync $1 data from online to offline done."
 	clear_tmp_files $1 $datastamp
@@ -487,22 +490,26 @@ elif [ $# -eq 2 ]; then
 	hadoop fs -get $partpath /data/$1_$datastamp/$partdir
 	if [ $? -ne 0 ]; then
 		exit 1
+		clear_tmp_files $1 $datastamp
 	fi
 	echo "scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp/$partdir"
 	ssh -p58422 hivesync@${OFFLINE_IP} "mkdir -p /data/$1_$datastamp"
 	scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp/$partdir
 	if [ $? -ne 0 ]; then
                 exit 1
+		clear_tmp_files $1 $datastamp
         fi
 	echo "ssh -P58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rmr $olpartpath\""
 	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rmr $olpartpath"
 	if [ $? -ne 0 ]; then
                 exit 1
+		clear_tmp_files $1 $datastamp
         fi
 	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -put /data/$1_$datastamp/* $oltblpath\""
 	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -put /data/$1_$datastamp/* $oltblpath"
 	if [ $? -ne 0 ]; then
                 exit 1
+		clear_tmp_files $1 $datastamp
         fi
 	echo "INFO: sync $1($2) data from online to offline done."
 	clear_tmp_files $1 $datastamp
@@ -523,22 +530,26 @@ elif [ $# -eq 3 ]; then
 	        hadoop fs -get $partpath /data/$1_$datastamp/$partdir
         	if [ $? -ne 0 ]; then
         	        exit 1
+			clear_tmp_files $1 $datastamp
         	fi
         	echo "scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp/$partdir"
 		ssh -p58422 hivesync@${OFFLINE_IP} "mkdir -p /data/$1_$datastamp"
         	scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp/$partdir
         	if [ $? -ne 0 ]; then
         	        exit 1
+			clear_tmp_files $1 $datastamp
         	fi
         	echo "ssh -P58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rm $olpartpath/*\""
         	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rm $olpartpath/*"
         	if [ $? -ne 0 ]; then
         	        exit 1
+			clear_tmp_files $1 $datastamp
         	fi
         	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -put /data/$1_$datastamp/$partdir/* $olpartpath\""
         	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -put /data/$1_$datastamp/$partdir/* $olpartpath"
         	if [ $? -ne 0 ]; then
         	        exit 1
+			clear_tmp_files $1 $datastamp
         	fi
 	done
 	echo "INFO: sync $1($2, $3) data from online to offline done."
