@@ -235,13 +235,13 @@ cal_sync_time() {
         str1=`echo 0.00000036262552849271*$s0 | bc`
         time1=${str1%.*}
 	if [ "$time1" = "" ]; then
-                time=0
+                time1=0
         fi
 	# scp transfer time
 	str2=`echo $s0/2621440 | bc`
 	time2=${str2%.*}
         if [ "$time2" = "" ]; then
-                time=0
+                time2=0
         fi
 	time=`echo $time1+$time2 | bc`
 }
