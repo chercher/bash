@@ -40,13 +40,13 @@ get_range_partitions() {
 	sed -i "s/=/=$quote/" $1.partitions
 	sed -i "s/$/$quote/" $1.partitions
        	start_linenum=`grep -n $2 $1.partitions | awk -F":" '{print $1}'`
-        if [ $start_linenum -gt 1 ]; then
+        if [ "$start_linenum" -gt 1 ]; then
                 let delstart_linenum=$start_linenum-1
                 sed -i "1,${delstart_linenum}d" $1.partitions
         fi
         end_linenum=`grep -n $3 $1.partitions | awk -F":" '{print $1}'`
         sum_lines=`cat $1.partitions | wc -l`
-        if [ $end_linenum -lt $sum_lines ]; then
+        if [ "$end_linenum" -lt "$sum_lines" ]; then
                 let delend_linenum=$end_linenum+1
                 sed -i "${delend_linenum},${sum_lines}d" $1.partitions
         fi
@@ -499,7 +499,7 @@ elif [ $# -eq 2 ]; then
                 exit 1
 		clear_tmp_files $1 $datastamp
         fi
-	echo "ssh -P58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rmr $olpartpath\""
+	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rmr $olpartpath\""
 	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rmr $olpartpath"
 	if [ $? -ne 0 ]; then
                 exit 1
@@ -539,7 +539,7 @@ elif [ $# -eq 3 ]; then
         	        exit 1
 			clear_tmp_files $1 $datastamp
         	fi
-        	echo "ssh -P58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rm $olpartpath/*\""
+        	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rm $olpartpath/*\""
         	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rm $olpartpath/*"
         	if [ $? -ne 0 ]; then
         	        exit 1
