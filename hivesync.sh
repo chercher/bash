@@ -1,5 +1,7 @@
 #!/bin/bash
 
+export HADOOP_ROOT_LOGGER=WARN,console
+
 OFFLINE_IP="192.168.213.245"
 HIVE_CMD="/usr/local/hadoop/hive-release/bin/hive"
 HADOOP_CMD="/usr/local/hadoop/hadoop-release/bin/hadoop"
@@ -120,11 +122,11 @@ get_offlinepart_path() {
 
 get_hdfspath_size() {
 	#echo "hadoop fs -dus $1"
-	s0=`hadoop fs -dus $1`
+	s0=`hadoop fs -du -s $1`
 	if [ $? -ne 0 ]; then
 		exit 1
 	fi
-	echo $s0 | awk '{print $2}'
+	echo $s0 | awk '{print $1}'
 }
 
 get_disk_freesize() {
@@ -486,6 +488,10 @@ elif [ $# -eq 2 ]; then
 	datastamp=`date +%Y%m%d%H%m%S`
 	quote="'"
 	partdir=`echo $2 | sed "s/$quote//g"`
+	if [ ! -d /data/$1_$datastamp ]; then
+		echo "mkdir /data/$1_$datastamp"
+		mkdir /data/$1_$datastamp
+	fi
 	echo "hadoop fs -get $partpath /data/$1_$datastamp/$partdir"
 	hadoop fs -get $partpath /data/$1_$datastamp/$partdir
 	if [ $? -ne 0 ]; then
@@ -526,6 +532,10 @@ elif [ $# -eq 3 ]; then
 		olpartpath=`get_offlinepart_path $1 $partition`
 		quote="'"
 		partdir=`echo $partition | sed "s/$quote//g"`
+		if [ ! -d /data/$1_$datastamp ]; then
+			echo "mkdir /data/$1_$datastamp"
+			mkdir /data/$1_$datastamp
+		fi
 		echo "hadoop fs -get $partpath /data/$1_$datastamp/$partdir"
 	        hadoop fs -get $partpath /data/$1_$datastamp/$partdir
         	if [ $? -ne 0 ]; then
