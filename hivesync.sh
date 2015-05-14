@@ -2,11 +2,11 @@
 
 export HADOOP_ROOT_LOGGER=WARN,console
 
-OFFLINE_IP="192.168.213.245"
+OFFLINE_IP="192.168.224.144"
 HIVE_CMD="/usr/local/hadoop/hive-release/bin/hive"
 HADOOP_CMD="/usr/local/hadoop/hadoop-release/bin/hadoop"
-GET_HIVESYNC_TICKET="/usr/bin/kinit -r24l -k -t /data/home/hivesync/.keytab hivesync; /usr/bin/kinit -R"
-GET_HADOOP_TICKET="/usr/bin/kinit -r24l -k -t /home/hadoop/.keytab hadoop; /usr/bin/kinit -R"
+#GET_HIVESYNC_TICKET="/usr/bin/kinit -r24l -k -t /data/home/hivesync/.keytab hivesync; /usr/bin/kinit -R"
+GET_HADOOP_TICKET="/usr/local/bin/kinit -r24l -k -t /home/hadoop/.keytab hadoop; /usr/local/bin/kinit -R"
 
 if_tbl_exists() {
 	if [ $1 = "local" ]; then
@@ -17,7 +17,7 @@ if_tbl_exists() {
 			return 1
 		fi
 	elif [ $1 = "remote" ]; then
-		ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e 'use bi; desc $2' > /dev/null 2>&1 "	
+		ssh -p58422 hadoop@${OFFLINE_IP} "${HIVE_CMD} -S -e 'use bi; desc $2' > /dev/null 2>&1 "	
 		if [ $? -eq 0 ]; then
 			return 0
 		else
@@ -106,7 +106,7 @@ get_onlinepart_path() {
 }
 
 get_offlinetbl_path() {
-	str=`ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi; desc formatted $1;\""`
+	str=`ssh -p58422 hadoop@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi; desc formatted $1;\""`
 	if [ $? -ne 0 ]; then
                 exit 1
         fi
@@ -144,7 +144,7 @@ get_disk_freesize() {
                 	exit 1
         	fi
 	elif [ $1 = "remote" ]; then 
-		s2=`ssh -p58422 hivesync@${OFFLINE_IP} "/bin/df -h | grep data | awk '{print \\$4}'"`
+		s2=`ssh -p58422 hadoop@${OFFLINE_IP} "/bin/df -h | grep -E 'data$' | awk '{print \\$4}'"`
 		unit=${s2:0-1}
         	if [ $unit = "G" ]; then
                		let bytesize=${s2%*G}*1024*1024*1024 && s2=$bytesize
@@ -202,7 +202,7 @@ get_tbl_schema() {
 		echo ${str%STORED AS*}" STORED AS "$storeformat | sed 's/u0//g'
 		#echo ${str%LOCATION*} | sed 's/u0//g'
 	elif [ $1 = "remote" ]; then
-		str=`ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e 'use bi; show create table $2;'"`
+		str=`ssh -p58422 hadoop@${OFFLINE_IP} "${HIVE_CMD} -S -e 'use bi; show create table $2;'"`
 		echo ${str%STORED AS*}" STORED AS "$storeformat | sed 's/u0//g'
 		#echo ${str%LOCATION*} | sed 's/u0//g'
 	else
@@ -212,8 +212,8 @@ get_tbl_schema() {
 }
 
 add_single_partition() {
-	#echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HIVE_CMD} -S -e \"use bi; alter table $1 drop if exists partition($2);alter table $1 add partition($2);\"\""
-	ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi; alter table $1 drop if exists partition($2);alter table $1 add partition($2);\""
+	#echo "ssh -p58422 hadoop@${OFFLINE_IP} \"${HIVE_CMD} -S -e \"use bi; alter table $1 drop if exists partition($2);alter table $1 add partition($2);\"\""
+	ssh -p58422 hadoop@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi; alter table $1 drop if exists partition($2);alter table $1 add partition($2);\""
 }
 
 add_multi_partitions() {
@@ -256,13 +256,17 @@ clear_tmp_files() {
 		find /data/$1_$2 -type f -size +500M -exec sh -c "> {}" \;
 		rm -rf /data/$1_$2
 	fi
-        ssh -p58422 hivesync@${OFFLINE_IP} "[ -e /data/$1_$2 ] && find /data/$1_$2 -type f -size +500M -exec sh -c \"> {}\" \; && rm -rf /data/$1_$2"
+        ssh -p58422 hadoop@${OFFLINE_IP} "[ -e /data/$1_$2 ] && find /data/$1_$2 -type f -size +500M -exec sh -c \"> {}\" \; && rm -rf /data/$1_$2"
         echo "INFO: clear tmp files done."
 }
 
 
+#t1=`get_tbl_schema local $1`
+#echo "INFO: online $1 schema: "$t1""
+#exit 0
+
 #get hivesync and hadoop ticket at first
-ssh -p58422 hivesync@${OFFLINE_IP} "${GET_HIVESYNC_TICKET}"
+#ssh -p58422 hadoop@${OFFLINE_IP} "${GET_HIVESYNC_TICKET}"
 ssh -p58422 hadoop@${OFFLINE_IP} "${GET_HADOOP_TICKET}"
 
 echo "INIT: check whether table, partition exists ..."
@@ -329,7 +333,7 @@ echo "INFO: 7.159 /data free space in bytes: "$s1""
 
 s2=0
 get_disk_freesize remote
-echo "INFO: cosmos01.beta /data free space in bytes: "$s2""
+echo "INFO: hadoop-a01 /data free space in bytes: "$s2""
 
 s3=0
 get_cluster_freesize
@@ -341,7 +345,7 @@ if [ $s0 -gt $s1 ]; then
 fi
 
 if [ $s0 -gt $s2 ]; then
-	echo "ERROR: cosmos01.beta /data has not enough space."
+	echo "ERROR: hadoop-a01 /data has not enough space."
 	exit 1
 fi
 
@@ -370,15 +374,15 @@ if [ $? -eq 0 ]; then
 	else
 		echo "INFO: offline $1 schema is not the same as the online one."
 		echo "INFO: dropping table $1 ..."
-		ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e 'use bi;drop table $1;' > /dev/null 2>&1"
+		ssh -p58422 hadoop@${OFFLINE_IP} "${HIVE_CMD} -S -e 'use bi;drop table $1;' > /dev/null 2>&1"
 		if [ $? -eq 0 ]; then
 			echo "INFO: drop table $1 done."
 			echo "INFO: starting to create table $1 as online..."
 			ifsetnull=`get_null_format $1`
 			if [ "$ifsetnull" -eq 0 ]; then
-				ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;$t1; ALTER TABLE $1 SET SERDEPROPERTIES('serialization.null.format' = '');\" > /dev/null 2>&1"	
+				ssh -p58422 hadoop@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;$t1; ALTER TABLE $1 SET SERDEPROPERTIES('serialization.null.format' = '');\" > /dev/null 2>&1"	
 			elif [ "$ifsetnull" -eq 1 ]; then
-				ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;$t1\" > /dev/null 2>&1"
+				ssh -p58422 hadoop@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;$t1\" > /dev/null 2>&1"
 			else
 				exit 1
 			fi
@@ -395,7 +399,7 @@ if [ $? -eq 0 ]; then
 	fi
 else
 	echo "INFO: $1 does not exists offline. creating table $1 as online ..."
-	ssh -p58422 hivesync@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;$t1\"" 
+	ssh -p58422 hadoop@${OFFLINE_IP} "${HIVE_CMD} -S -e \"use bi;$t1\"" 
 	if [ $? -eq 0 ]; then
 		echo "INFO: creating table $1 as online done."	
 	else
@@ -462,16 +466,22 @@ if [ $# -eq 1 ]; then
                 exit 1
 		clear_tmp_files $1 $datastamp
         fi
-	echo "scp -P58422 -q -r /data/$1_$datastamp hivesync@${OFFLINE_IP}:/data"
-	scp -P58422 -q -r /data/$1_$datastamp hivesync@${OFFLINE_IP}:/data
-	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rmr $oltblpath/*\""
-	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rmr $oltblpath/*"
+	echo "scp -P58422 -q -r /data/$1_$datastamp hadoop@${OFFLINE_IP}:/data"
+	scp -P58422 -q -r /data/$1_$datastamp hadoop@${OFFLINE_IP}:/data
+	echo "ssh -p58422 hadoop@${OFFLINE_IP} \"${HADOOP_CMD} fs -rmdir $oltblpath\""
+	ssh -p58422 hadoop@${OFFLINE_IP} "${HADOOP_CMD}  fs -rmdir $oltblpath"
 	if [ $? -ne 0 ]; then
                 exit 1
 		clear_tmp_files $1 $datastamp
         fi
-	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -put /data/$1_$datastamp/* $oltblpath\""
-	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -put /data/$1_$datastamp/* $oltblpath"
+	echo "ssh -p58422 hadoop@${OFFLINE_IP} \"${HADOOP_CMD} fs -mkdir $oltblpath\""
+	ssh -p58422 hadoop@${OFFLINE_IP} "${HADOOP_CMD}  fs -mkdir $oltblpath"
+	if [ $? -ne 0 ]; then
+                exit 1
+		clear_tmp_files $1 $datastamp
+        fi
+	echo "ssh -p58422 hadoop@${OFFLINE_IP} \"${HADOOP_CMD} fs -put /data/$1_$datastamp/* $oltblpath\""
+	ssh -p58422 hadoop@${OFFLINE_IP} "${HADOOP_CMD}  fs -put /data/$1_$datastamp/* $oltblpath"
 	if [ $? -ne 0 ]; then
                 exit 1
 		clear_tmp_files $1 $datastamp
@@ -498,21 +508,27 @@ elif [ $# -eq 2 ]; then
 		exit 1
 		clear_tmp_files $1 $datastamp
 	fi
-	echo "scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp/$partdir"
-	ssh -p58422 hivesync@${OFFLINE_IP} "mkdir -p /data/$1_$datastamp"
-	scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp/$partdir
+	echo "scp -P58422 -q -r /data/$1_$datastamp/$partdir hadoop@${OFFLINE_IP}:/data/$1_$datastamp/$partdir"
+	ssh -p58422 hadoop@${OFFLINE_IP} "mkdir -p /data/$1_$datastamp"
+	scp -P58422 -q -r /data/$1_$datastamp/$partdir hadoop@${OFFLINE_IP}:/data/$1_$datastamp/$partdir
 	if [ $? -ne 0 ]; then
                 exit 1
 		clear_tmp_files $1 $datastamp
         fi
-	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rmr $olpartpath\""
-	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rmr $olpartpath"
+	echo "ssh -p58422 hadoop@${OFFLINE_IP} \"${HADOOP_CMD} fs -rmdir $olpartpath\""
+	ssh -p58422 hadoop@${OFFLINE_IP} "${HADOOP_CMD}  fs -rmdir $olpartpath"
 	if [ $? -ne 0 ]; then
                 exit 1
 		clear_tmp_files $1 $datastamp
         fi
-	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -put /data/$1_$datastamp/* $oltblpath\""
-	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -put /data/$1_$datastamp/* $oltblpath"
+	echo "ssh -p58422 hadoop@${OFFLINE_IP} \"${HADOOP_CMD} fs -mkdir $olpartpath\""
+	ssh -p58422 hadoop@${OFFLINE_IP} "${HADOOP_CMD}  fs -mkdir $olpartpath"
+	if [ $? -ne 0 ]; then
+                exit 1
+		clear_tmp_files $1 $datastamp
+        fi
+	echo "ssh -p58422 hadoop@${OFFLINE_IP} \"${HADOOP_CMD} fs -put /data/$1_$datastamp/* $oltblpath\""
+	ssh -p58422 hadoop@${OFFLINE_IP} "${HADOOP_CMD}  fs -put /data/$1_$datastamp/* $oltblpath"
 	if [ $? -ne 0 ]; then
                 exit 1
 		clear_tmp_files $1 $datastamp
@@ -542,21 +558,27 @@ elif [ $# -eq 3 ]; then
         	        exit 1
 			clear_tmp_files $1 $datastamp
         	fi
-        	echo "scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp/$partdir"
-		ssh -p58422 hivesync@${OFFLINE_IP} "mkdir -p /data/$1_$datastamp"
-        	scp -P58422 -q -r /data/$1_$datastamp/$partdir hivesync@${OFFLINE_IP}:/data/$1_$datastamp/$partdir
+        	echo "scp -P58422 -q -r /data/$1_$datastamp/$partdir hadoop@${OFFLINE_IP}:/data/$1_$datastamp/$partdir"
+		ssh -p58422 hadoop@${OFFLINE_IP} "mkdir -p /data/$1_$datastamp"
+        	scp -P58422 -q -r /data/$1_$datastamp/$partdir hadoop@${OFFLINE_IP}:/data/$1_$datastamp/$partdir
         	if [ $? -ne 0 ]; then
         	        exit 1
 			clear_tmp_files $1 $datastamp
         	fi
-        	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -rm $olpartpath/*\""
-        	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -rm $olpartpath/*"
+        	echo "ssh -p58422 hadoop@${OFFLINE_IP} \"${HADOOP_CMD} fs -rmdir $olpartpath\""
+        	ssh -p58422 hadoop@${OFFLINE_IP} "${HADOOP_CMD}  fs -rmdir $olpartpath"
         	if [ $? -ne 0 ]; then
         	        exit 1
 			clear_tmp_files $1 $datastamp
         	fi
-        	echo "ssh -p58422 hivesync@${OFFLINE_IP} \"${HADOOP_CMD} fs -put /data/$1_$datastamp/$partdir/* $olpartpath\""
-        	ssh -p58422 hivesync@${OFFLINE_IP} "${HADOOP_CMD}  fs -put /data/$1_$datastamp/$partdir/* $olpartpath"
+        	echo "ssh -p58422 hadoop@${OFFLINE_IP} \"${HADOOP_CMD} fs -mkdir $olpartpath\""
+        	ssh -p58422 hadoop@${OFFLINE_IP} "${HADOOP_CMD}  fs -mkdir $olpartpath"
+        	if [ $? -ne 0 ]; then
+        	        exit 1
+			clear_tmp_files $1 $datastamp
+        	fi
+        	echo "ssh -p58422 hadoop@${OFFLINE_IP} \"${HADOOP_CMD} fs -put /data/$1_$datastamp/$partdir/* $olpartpath\""
+        	ssh -p58422 hadoop@${OFFLINE_IP} "${HADOOP_CMD}  fs -put /data/$1_$datastamp/$partdir/* $olpartpath"
         	if [ $? -ne 0 ]; then
         	        exit 1
 			clear_tmp_files $1 $datastamp
